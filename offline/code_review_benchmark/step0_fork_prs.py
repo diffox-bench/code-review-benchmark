@@ -32,6 +32,21 @@ import time
 import requests
 
 
+def _quiet_references(text: str) -> str:
+    """diffox-bench: put @mentions and links to issues or pull requests in code spans, outside fenced code blocks,
+    so a copied description notifies nobody and leaves no backlink on the original project. The words stay."""
+    issue_url = r"https://github\.com/[^\s)>\]`]+/(?:issues|pull)/\d+[^\s)>\]`]*"
+    parts = re.split(r"(```.*?```)", text, flags=re.S)
+    for i in range(0, len(parts), 2):
+        t = parts[i]
+        t = re.sub(r"\[([^\]]*)\]\((" + issue_url + r")\)", r"\1 (`\2`)", t)
+        t = re.sub(r"(?<![`(])(" + issue_url + r")", r"`\1`", t)
+        t = re.sub(r"(?<![\w`/.-])((?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#\d+)", r"`\1`", t)
+        t = re.sub(r"(?<![\w`/.-])@([A-Za-z0-9][A-Za-z0-9-]*)", r"`@\1`", t)
+        parts[i] = t
+    return "".join(parts)
+
+
 class GitHubPRForker:
     def __init__(self, token: str, org: str):
         self.token = token
@@ -164,6 +179,11 @@ class GitHubPRForker:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             clone_url = f"https://github.com/{owner}/{repo}.git"
+            # diffox-bench: one local bare mirror per source repository (with the needed refs/pull/N/head), so each
+            # copy is cloned from disk instead of downloading the project's whole history again. Same objects.
+            mirror = os.path.join(os.environ.get("BENCH_MIRRORS", ""), f"{owner}__{repo}.git")
+            if os.environ.get("BENCH_MIRRORS") and os.path.isdir(mirror):
+                clone_url = mirror
 
             # Clone
             print(f"\nCloning {owner}/{repo}...")
@@ -185,6 +205,23 @@ class GitHubPRForker:
             print("Setting up base branch...")
             self.run_git(tmpdir, "checkout", base_sha)
             self.run_git(tmpdir, "checkout", "-b", base_branch + "-forked")
+
+            # diffox-bench: Dependabot reads its configuration from the DEFAULT branch only, and runs even where
+            # GitHub Actions is disabled. A copy that keeps it opens update pull requests, which a reviewer
+            # installed on every repository would then review. One commit on the copy's base branch removes it;
+            # the pull request under review is untouched (its head is the original's, and GitHub diffs it
+            # against the merge base, which is the original base commit).
+            for cfg in (".github/dependabot.yml", ".github/dependabot.yaml"):
+                if os.path.exists(os.path.join(tmpdir, cfg)):
+                    self.run_git(tmpdir, "rm", "--quiet", cfg)
+            if self.run_git(tmpdir, "diff", "--cached", "--quiet").returncode != 0:
+                done = self.run_git(tmpdir, "-c", "user.name=diffox-bench-bot",
+                                    "-c", "user.email=339090992+diffox-bench-bot@users.noreply.github.com",
+                                    "commit", "--quiet", "-m",
+                                    "benchmark copy: remove the Dependabot configuration so this copy opens no update pull requests")
+                if done.returncode != 0:
+                    raise Exception(f"Dependabot removal commit failed: {done.stderr}")
+                print("  removed the Dependabot configuration from the copy's base branch")
 
             # Checkout PR head as the PR branch
             print("Setting up PR branch...")
@@ -215,10 +252,20 @@ class GitHubPRForker:
                 raise Exception(f"Push PR branch failed:\nstdout: {result.stdout}\nstderr: {result.stderr}")
 
         # Make repo public now that all pushes are done
-        print("Making repository public...")
-        self.make_repo_public(new_repo_name)
+        if os.environ.get("BENCH_KEEP_PRIVATE") == "1":
+            # diffox-bench: copies stay private until the owner decides to publish (they are made public then).
+            print("Keeping repository private")
+        else:
+            print("Making repository public...")
+            self.make_repo_public(new_repo_name)
 
         # Create PR
+        if os.environ.get("BENCH_QUIET_REFERENCES") == "1":
+            pr_body = _quiet_references(pr_body)
+        # diffox-bench: our review service accepts new connections late for a minute or two after each hour, and
+        # GitHub gives a webhook ten seconds; the PR (whose webhook starts the review) is not opened then.
+        while os.environ.get("BENCH_AVOID_HOUR_START") == "1" and time.gmtime().tm_min < 8:
+            time.sleep(15)
         print("Creating PR...")
         new_pr = self.create_pull_request(
             repo=new_repo_name,

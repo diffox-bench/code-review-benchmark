@@ -1,3 +1,5 @@
+> **This is a fork.** It adds diffox's own run of this harness — results, method and caveats in [DIFFOX.md](DIFFOX.md). It is not affiliated with or endorsed by Martian; the upstream repository is [withmartian/code-review-benchmark](https://github.com/withmartian/code-review-benchmark).
+
 <div align="center">
     <h1>Code Review Bench</h1>
     <p>
