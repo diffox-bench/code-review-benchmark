@@ -1,7 +1,7 @@
 # diffox on the Code Review Benchmark — our own run of the public harness
 
 This fork of [withmartian/code-review-benchmark](https://github.com/withmartian/code-review-benchmark) adds one run of
-**diffox** and **diffox ultra**, made by the diffox team on 2026-10-07 with Martian's own harness at commit `e616e849`.
+**[diffox](https://diffox.ai/)** and **diffox ultra**, made by the diffox team on 2026-10-07 with Martian's own harness at commit `e616e849`.
 It is **not an official Martian listing**: Martian has not reviewed or verified it. The benchmark invites exactly this —
 *"the harness is public and you're welcome to run it and publish your own results."*
 
@@ -21,6 +21,9 @@ Core profile, F2 (the board's default score):
 
 Every other tool's numbers are the published board's, read on 2026-10-07. On F1 (β = 1) diffox ultra ranks 5th and
 diffox 7th of the 23.
+
+What each review costs across the tools on this board is covered in a
+[separate write-up](https://diffox.ai/blog/ai-code-review-cost-and-quality).
 
 ## Check it yourself
 
